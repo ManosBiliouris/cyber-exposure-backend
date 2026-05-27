@@ -6,10 +6,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from src.services.shodan_client import ShodanClient
 from src.services.zoomeye_client import ZoomEyeClient
 from src.services.fofa_client import FOFAClient
+from src.services.credential_manager import credential_manager
 
 load_dotenv()
-
-client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
 SYSTEM_PROMPT = """
 You are a cybersecurity OSINT expert. Your job is to convert natural language queries 
@@ -30,6 +29,9 @@ Rules:
 - If the user mentions Greece, use country:GR (Shodan/ZoomEye) and country="GR" (FOFA)
 """
 
+def get_groq_client():
+    return Groq(api_key=credential_manager.get_key("groq"))
+
 class LLMAgent:
     def __init__(self):
         self.shodan = ShodanClient()
@@ -37,18 +39,36 @@ class LLMAgent:
         self.fofa = FOFAClient()
 
     def translate_query(self, natural_language: str) -> dict:
-        response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": natural_language}
-            ],
-            temperature=0.1,
-        )
+        client = get_groq_client()
+        
+        try:
+            response = client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": natural_language}
+                ],
+                temperature=0.1,
+            )
+        except Exception as e:
+            # Rate limit — blacklist and retry with next key
+            if "429" in str(e) or "rate" in str(e).lower():
+                current_key = credential_manager.get_key("groq")
+                credential_manager.blacklist_key("groq", current_key)
+                client = get_groq_client()
+                response = client.chat.completions.create(
+                    model="llama-3.3-70b-versatile",
+                    messages=[
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user", "content": natural_language}
+                    ],
+                    temperature=0.1,
+                )
+            else:
+                raise e
 
         raw = response.choices[0].message.content.strip()
 
-        # Strip markdown if model adds it
         if raw.startswith("```"):
             raw = raw.split("```")[1]
             if raw.startswith("json"):

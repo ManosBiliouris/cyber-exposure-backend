@@ -9,13 +9,8 @@ class FOFAClient:
         self.base_url = "https://fofa.info/api/v1"
 
     def run_single_query(self, query: str):
-        """
-        Performs ONE FOFA search request.
-        Query must be base64 encoded.
-        """
         endpoint = f"{self.base_url}/search/all"
 
-        # FOFA requires base64 encoded query
         query_b64 = base64.b64encode(query.encode()).decode()
 
         params = {
@@ -27,8 +22,19 @@ class FOFAClient:
         }
 
         response = requests.get(endpoint, params=params)
-        response.raise_for_status()
         data = response.json()
+
+        # Print για debugging
+        print(f"FOFA response: {data}")
+
+        # Check για FOFA errors
+        if not data.get("error", False) is False:
+            print(f"FOFA error: {data.get('errmsg', 'Unknown error')}")
+            return {"raw_query": query, "total": 0, "results": []}
+
+        if data.get("errmsg"):
+            print(f"FOFA errmsg: {data.get('errmsg')}")
+            return {"raw_query": query, "total": 0, "results": []}
 
         results = []
         for item in data.get("results", []):
