@@ -69,7 +69,12 @@ def ingest_assets(scan_results: dict, db: Session = Depends(get_db)):
             AssetDB.port == item.get("port")
         ).first()
 
-        if not existing:
+        if existing:
+            existing.risk_score = item.get("risk_score")
+            existing.risk_level = item.get("risk_level")
+            existing.service = item.get("service")
+            existing.org = item.get("org")
+        else:
             asset = AssetDB(
                 id=f"ast-{uuid.uuid4().hex[:8]}",
                 ip=item.get("ip"),

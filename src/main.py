@@ -6,6 +6,7 @@ from src.database import init_db, get_db, AssetDB
 from src.services.credential_manager import credential_manager
 from src.services.proxy_manager import proxy_manager
 from src.services.ml_predictor import ml_predictor
+from pydantic import BaseModel
 
 app = FastAPI()
 
@@ -62,6 +63,59 @@ def ml_predict_asset(asset_id: str, db: Session = Depends(get_db)):
     prediction = ml_predictor.predict(asset_dict)
     return {**asset_dict, "ml_prediction": prediction}
 
+
+class TestKeyRequest(BaseModel):
+    key: str
+    email: str | None = None
+
+@app.post("/credentials/test/{service}")
+def test_credential_with_key(service: str, req: TestKeyRequest):
+    try:
+        if service == "shodan":
+            import requests as req_lib
+            response = req_lib.get(
+                "https://api.shodan.io/shodan/host/search",
+                params={"key": req.key, "query": "apache country:GR"}
+            )
+            return {"valid": response.status_code == 200}
+
+        elif service == "groq":
+            from groq import Groq
+            client = Groq(api_key=req.key)
+            client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[{"role": "user", "content": "hi"}],
+                max_tokens=5
+            )
+            return {"valid": True}
+
+        elif service == "zoomeye":
+            import requests as req_lib
+            response = req_lib.get(
+                "https://api.zoomeye.org/host/search",
+                headers={"API-KEY": req.key},
+                params={"query": "apache", "page": 1}
+            )
+            return {"valid": response.status_code == 200}
+
+        elif service == "fofa_key":
+            import requests as req_lib
+            import base64
+            query_b64 = base64.b64encode(b"apache").decode()
+            response = req_lib.get(
+                "https://fofa.info/api/v1/search/all",
+                params={"email": req.email, "key": req.key, "qbase64": query_b64, "size": 1}
+            )
+            data = response.json()
+            return {"valid": not data.get("error", False)}
+
+        else:
+            return {"valid": False}
+
+    except Exception as e:
+        return {"valid": False, "error": str(e)}
+    
+    
 app.include_router(scans.router, prefix="/scan")
 app.include_router(assets.router, prefix="/assets")
 app.include_router(vulnerability.router, prefix="/vulnerabilities")
